@@ -12,7 +12,8 @@ app = Flask(__name__)
 CORS(app)
 
 # Database setup
-DATABASE = 'sap_inventory.db'
+import os
+DATABASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sap_inventory.db')
 
 def init_db():
     """Initialize the database with sample data."""
@@ -142,7 +143,7 @@ def index():
                     </div>
                 </div>
 
-                <div class="bg-white p-6 rounded-lg shadow-md">
+                <div class="bg-white p-6 rounded-lg shadow-md cursor-pointer hover:shadow-lg transition-shadow" onclick="window.open('/at-risk-items', '_blank')">
                     <div class="flex items-start">
                         <div class="p-3 rounded-full bg-red-100 mr-4 mt-1">
                             <i class="fas fa-chart-line text-red-500 text-xl"></i>
@@ -154,7 +155,7 @@ def index():
                     </div>
                 </div>
 
-                <div class="bg-white p-6 rounded-lg shadow-md">
+                <div class="bg-white p-6 rounded-lg shadow-md cursor-pointer hover:shadow-lg transition-shadow" onclick="window.open('/low-stock-items', '_blank')">
                     <div class="flex items-start">
                         <div class="p-3 rounded-full bg-yellow-100 mr-4 mt-1">
                             <i class="fas fa-exclamation-triangle text-yellow-500 text-xl"></i>
@@ -888,7 +889,7 @@ def index():
                     console.log('Lade Dashboard-Statistiken...');
                     const response = await fetch('/api/inventory/stats');
                     console.log('Statistik-Antwort Status:', response.status);
-                    
+
                     if (!response.ok) {
                         throw new Error('API responded with status ' + response.status);
                     }
@@ -908,6 +909,13 @@ def index():
                         const atRiskItemsElement = document.getElementById('atRiskItems');
                         if (atRiskItemsElement) {
                             atRiskItemsElement.textContent = stats.at_risk_items.count || 0;
+
+                            // Make the count itself also clickable
+                            atRiskItemsElement.style.cursor = 'pointer';
+                            atRiskItemsElement.title = 'Klicken Sie hier, um alle gefährdeten Artikel anzuzeigen';
+                            atRiskItemsElement.addEventListener('click', function() {
+                                window.open('/at-risk-items', '_blank');
+                            });
                         }
                     }
 
@@ -916,6 +924,13 @@ def index():
                         const lowStockItemsElement = document.getElementById('lowStockItems');
                         if (lowStockItemsElement) {
                             lowStockItemsElement.textContent = stats.low_stock_items.count || 0;
+
+                            // Make the count itself also clickable
+                            lowStockItemsElement.style.cursor = 'pointer';
+                            lowStockItemsElement.title = 'Klicken Sie hier, um alle Artikel mit niedrigem Bestand anzuzeigen';
+                            lowStockItemsElement.addEventListener('click', function() {
+                                window.open('/low-stock-items', '_blank');
+                            });
                         }
                     }
                 } catch (error) {
@@ -1377,7 +1392,8 @@ def index():
                 }
             }
 
-            // Modified function to load demand data based on selected products (category-based selection)
+            // Modified function to load forecast data based on selected products (category-based selection)
+            // This function now loads only forecast data for the selected products
             async function loadActualDemandData() {
                 const container = document.getElementById('categoryProductContainer');
                 let selectedProducts = [];
@@ -1391,39 +1407,48 @@ def index():
                 }
 
                 try {
-                    let forecasts = [];
+                    // Initialize datasets array to hold forecast data
+                    const datasets = [];
 
                     if (selectedProducts.length > 0) {
-                        // Load forecast data for selected products only
+                        // Fetch forecast data for selected products
                         try {
-                            // Fetch forecast data for each selected product
-                            const promises = [];
-                            for (const productId of selectedProducts) {
-                                promises.push(
-                                    fetch('/api/forecasts/' + productId).then(r => r.json()).then(data => ({product_id: productId, data: data, type: 'forecast'}))
-                                );
-                            }
+                            // Fetch all forecasts
+                            const forecastResponse = await fetch('/api/forecasts');
+                            const allForecasts = await forecastResponse.json();
 
-                            const results = await Promise.all(promises);
+                            // Filter forecasts for selected products only
+                            const filteredForecasts = allForecasts.filter(f => selectedProducts.includes(f.product_id));
 
-                            // Process results
-                            results.forEach(forecastResult => {
-                                // Add forecast data
-                                forecastResult.data.forEach(f => {
-                                    forecasts.push({...f, product_id: forecastResult.product_id});
-                                });
+                            // Group forecast data by product
+                            const forecastsByProduct = {};
+                            filteredForecasts.forEach(forecast => {
+                                if (!forecastsByProduct[forecast.product_id]) {
+                                    forecastsByProduct[forecast.product_id] = [];
+                                }
+                                forecastsByProduct[forecast.product_id].push(forecast);
                             });
 
+                            // Add forecast data as separate datasets
+                            Object.entries(forecastsByProduct).forEach(([productId, productForecasts], index) => {
+                                datasets.push({
+                                    label: productId + ' (Prognose)',
+                                    data: productForecasts.map(f => ({x: f.forecast_date, y: f.predicted_demand})),
+                                    borderColor: 'hsl(' + (index * 70) + ', 70%, 50%)',
+                                    backgroundColor: 'hsla(' + (index * 70) + ', 70%, 50%, 0.1)',
+                                    fill: false,
+                                    tension: 0.1
+                                });
+                            });
                         } catch (apiError) {
                             console.error('API request failed:', apiError);
-                            forecasts = [];
                         }
                     } else {
-                        // When no products are selected, don't load any data (show empty chart)
-                        forecasts = [];
+                        // When no products are selected, show a message
+                        console.log('No products selected, showing message chart');
                     }
 
-                    console.log('Prognosen empfangen:', forecasts);
+                    console.log('Datasets vorbereitet:', datasets);
 
                     // Process data for chart
                     const ctx = document.getElementById('demandChart').getContext('2d');
@@ -1432,35 +1457,6 @@ def index():
                     if (window.demandChart && typeof window.demandChart.destroy === 'function') {
                         window.demandChart.destroy();
                     }
-
-                    // Prepare datasets for the chart
-                    const datasets = [];
-
-                    // Process forecast data only
-                    if (Array.isArray(forecasts) && forecasts.length > 0) {
-                        // Group forecasts by product
-                        const forecastsByProduct = {};
-                        forecasts.forEach(forecast => {
-                            if (!forecastsByProduct[forecast.product_id]) {
-                                forecastsByProduct[forecast.product_id] = [];
-                            }
-                            forecastsByProduct[forecast.product_id].push(forecast);
-                        });
-
-                        // Add forecast data as separate datasets
-                        Object.entries(forecastsByProduct).forEach(([productId, productForecasts], index) => {
-                            datasets.push({
-                                label: productId + ' (Prognose)',
-                                data: productForecasts.map(f => ({x: f.forecast_date, y: f.predicted_demand})),
-                                borderColor: 'hsl(' + (index * 70) + ', 70%, 50%)',
-                                backgroundColor: 'hsla(' + (index * 70) + ', 70%, 50%, 0.1)',
-                                fill: false,
-                                tension: 0.1
-                            });
-                        });
-                    }
-
-                    console.log('Datasets vorbereitet:', datasets);
 
                     // If no data at all, create an empty chart with a message
                     if (datasets.length === 0) {
@@ -1477,7 +1473,7 @@ def index():
                                         display: true,
                                         text: selectedProducts.length > 0 ?
                                             'Keine Prognosedaten für die ausgewählten Produkte verfügbar' :
-                                            'Keine Prognosedaten verfügbar. Generiere Prognosen und wähle ein Produkt.'
+                                            'Wählen Sie Produkte aus und generieren Sie Prognosen, um die Nachfrage anzuzeigen.'
                                     }
                                 },
                                 scales: {
@@ -1661,11 +1657,13 @@ def get_inventory_stats():
             'total_products': total_products,
             'at_risk_items': {
                 'count': at_risk_items_count,
-                'items': [dict(row) for row in at_risk_items]
+                'items': [dict(row) for row in at_risk_items],
+                'url': '/at-risk-items'  # Add a URL to view all at-risk items
             },
             'low_stock_items': {
                 'count': low_stock_items_count,
-                'items': [dict(row) for row in low_stock_items]
+                'items': [dict(row) for row in low_stock_items],
+                'url': '/low-stock-items'  # Add a URL to view all low stock items
             }
         })
     except Exception as e:
@@ -1673,6 +1671,189 @@ def get_inventory_stats():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/at-risk-items')
+def at_risk_items_page():
+    """Page to display all items at risk (current stock below min)."""
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Gefährdete Artikel</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-gray-100">
+        <div class="container mx-auto px-4 py-8">
+            <div class="flex justify-between items-center mb-6">
+                <h1 class="text-3xl font-bold text-gray-800">Gefährdete Artikel</h1>
+                <a href="/" class="text-blue-600 hover:text-blue-800 font-medium">← Zurück zum Dashboard</a>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Produkt-ID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kategorie</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aktueller Bestand</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mindestbestand</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="atRiskTableBody" class="bg-white divide-y divide-gray-200">
+                            <tr>
+                                <td colspan="6" class="text-center py-4">Lade Daten...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            async function loadAtRiskItems() {
+                try {
+                    const response = await fetch('/api/inventory');
+                    const allItems = await response.json();
+
+                    // Filter for items where current stock is below minimum
+                    const atRiskItems = allItems.filter(item => item.current_stock < item.min_stock);
+
+                    const tableBody = document.getElementById('atRiskTableBody');
+                    tableBody.innerHTML = '';
+
+                    if (atRiskItems.length === 0) {
+                        tableBody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-gray-500">Keine gefährdeten Artikel vorhanden</td></tr>';
+                        return;
+                    }
+
+                    atRiskItems.forEach(item => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td class="px-6 py-4 whitespace-nowrap">${item.product_id}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${item.product_name}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${item.kategorie || item.category}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${item.current_stock}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${item.min_stock}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                                    Gefährdet
+                                </span>
+                            </td>
+                        `;
+                        tableBody.appendChild(row);
+                    });
+                } catch (error) {
+                    console.error('Fehler beim Laden der gefährdeten Artikel:', error);
+                    const tableBody = document.getElementById('atRiskTableBody');
+                    tableBody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-red-500">Fehler beim Laden der Daten: ' + error.message + '</td></tr>';
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', loadAtRiskItems);
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(html_content)
+
+
+@app.route('/low-stock-items')
+def low_stock_items_page():
+    """Page to display all items with low stock (below 50% of target)."""
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="de">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Artikel mit niedrigem Bestand</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-gray-100">
+        <div class="container mx-auto px-4 py-8">
+            <div class="flex justify-between items-center mb-6">
+                <h1 class="text-3xl font-bold text-gray-800">Artikel mit niedrigem Bestand</h1>
+                <a href="/" class="text-blue-600 hover:text-blue-800 font-medium">← Zurück zum Dashboard</a>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Produkt-ID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kategorie</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aktueller Bestand</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zielbestand</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="lowStockTableBody" class="bg-white divide-y divide-gray-200">
+                            <tr>
+                                <td colspan="6" class="text-center py-4">Lade Daten...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            async function loadLowStockItems() {
+                try {
+                    const response = await fetch('/api/inventory');
+                    const allItems = await response.json();
+
+                    // Filter for items where current stock is below 50% of target but above minimum
+                    const lowStockItems = allItems.filter(item =>
+                        item.current_stock < (item.target_stock * 0.5) &&
+                        item.current_stock >= item.min_stock
+                    );
+
+                    const tableBody = document.getElementById('lowStockTableBody');
+                    tableBody.innerHTML = '';
+
+                    if (lowStockItems.length === 0) {
+                        tableBody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-gray-500">Keine Artikel mit niedrigem Bestand vorhanden</td></tr>';
+                        return;
+                    }
+
+                    lowStockItems.forEach(item => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td class="px-6 py-4 whitespace-nowrap">${item.product_id}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${item.product_name}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${item.kategorie || item.category}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${item.current_stock}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">${item.target_stock}</td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                    Niedrig
+                                </span>
+                            </td>
+                        `;
+                        tableBody.appendChild(row);
+                    });
+                } catch (error) {
+                    console.error('Fehler beim Laden der Artikel mit niedrigem Bestand:', error);
+                    const tableBody = document.getElementById('lowStockTableBody');
+                    tableBody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-red-500">Fehler beim Laden der Daten: ' + error.message + '</td></tr>';
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', loadLowStockItems);
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(html_content)
 
 @app.route('/api/demand/<product_id>', methods=['GET'])
 def get_historical_demand(product_id):
@@ -2158,5 +2339,5 @@ def upload_inventory():
 if __name__ == '__main__':
     print("Initialisiere Datenbank...")
     init_db()
-    print("Starte Flask-Anwendung auf http://0.0.0.0:5001")
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    print("Starte Flask-Anwendung auf http://0.0.0.0:5020")
+    app.run(debug=True, host='0.0.0.0', port=5020)
