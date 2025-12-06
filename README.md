@@ -1,6 +1,6 @@
-# SAP Lagerbestand Management System
+# SAP Lagerbestandsprognose System
 
-This project is a web-based application for managing inventory levels with SAP-like data and functions, simulating the functionality of SAP ERP modules for warehouse management.
+This project is a web-based application for managing inventory levels with SAP-like data and functions, simulating the functionality of SAP ERP modules for warehouse management with forecasting capabilities.
 
 ## Features
 
@@ -11,15 +11,9 @@ This project is a web-based application for managing inventory levels with SAP-l
 - SAP-ERP table reference
 - CSV import functionality
 - SAP-like data structure with 300 entries generated using Faker
-
-## Technologies Used
-
-- **Backend**: Python Flask
-- **Frontend**: HTML, CSS (Tailwind), JavaScript
-- **Database**: SQLite
-- **AI Integration**: Ollama
-- **Data Processing**: Pandas, NumPy
-- **Visualization**: Chart.js
+- **NEW**: Clickable dashboard elements for "Gefährdete Artikel" and "Artikel mit niedrigem Bestand" that open detailed views in new tabs
+- **NEW**: Forecast-only chart that responds to product selections in the category dropdown
+- **NEW**: Direct data path fixing to ensure consistent database access
 
 ## Installation and Setup
 
@@ -65,7 +59,7 @@ This project is a web-based application for managing inventory levels with SAP-l
    python app_lager_sap.py
    ```
 
-7. Access the application at `http://localhost:5001`
+7. Access the application at `http://localhost:5020` (or the configured port)
 
 ## Usage
 
@@ -76,6 +70,26 @@ This project is a web-based application for managing inventory levels with SAP-l
 - **Forecast Generation**: Generate demand forecasts with customizable parameters
 - **AI Analysis**: Get AI-powered interpretation of inventory data
 - **Data Import**: Upload CSV files to update inventory
+- **NEW**: Clickable "Gefährdete Artikel" and "Artikel mit niedrigem Bestand" cards that open detailed views in new browser tabs
+- **NEW**: Forecast-only chart that displays forecast data for selected products from the category dropdown
+
+### New Features Documentation
+
+#### Clickable Dashboard Elements
+- The "Gefährdete Artikel" (At-risk Items) card can be clicked to open a new tab showing all items where current stock is below minimum stock level
+- The "Artikel mit niedrigem Bestand" (Low Stock Items) card can be clicked to open a new tab showing all items where stock is below 50% of target but still above minimum
+- Both individual count numbers and card areas are clickable for convenience
+
+#### Product Selection Chart
+- The "Nachfrageprognose" (Demand Forecast) section includes a category/product hierarchical selection
+- Check products from different categories to see their forecast data in the chart
+- The chart will only display forecast data for the selected products
+- After generating forecasts, the chart will update to show the new forecast data for selected products
+
+### Data Generation and Management
+- The system generates 300 sample inventory records and 21,000 demand records when running `generate_sap_data.py`
+- Database path is now fixed to ensure consistent access regardless of execution context
+- The system includes safeguards and error handling for all operations
 
 ### SAP ERP Integration
 
